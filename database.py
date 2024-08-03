@@ -4,14 +4,14 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def get_db_connection():
-    conn = sqlite3.connect(getenv('DATABASE_PATH', 'database.db'))
-    conn.row_factory = sqlite3.Row
-    return conn
+def establish_db_connection():
+    connection = sqlite3.connect(getenv('DATABASE_PATH', 'database.db'))
+    connection.row_factory = sqlite3.Row
+    return connection
 
-def create_tables():
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def initialize_database():
+    connection = establish_db_connection()
+    cursor = connection.cursor()
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS stocks (
             id INTEGER PRIMARY KEY,
@@ -24,64 +24,64 @@ def create_tables():
         CREATE TABLE IF NOT EXISTS transactions (
             id INTEGER PRIMARY KEY,
             stock_id INTEGER,
-            type TEXT NOT NULL,
+            transaction_type TEXT NOT NULL,
             quantity INTEGER NOT NULL,
             price REAL NOT NULL,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (stock_id) REFERENCES stocks (id)
         )
     ''')
-    conn.commit()
-    conn.close()
+    connection.commit()
+    connection.close()
 
-def store_stock_data(symbol, name, price):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def insert_or_update_stock(symbol, name, current_price):
+    connection = establish_db_connection()
+    cursor = connection.cursor()
     cursor.execute('''
         INSERT INTO stocks (symbol, name, price)
         VALUES (?, ?, ?)
         ON CONFLICT(symbol) DO UPDATE SET
         name=excluded.name,
         price=excluded.price
-    ''', (symbol, name, price))
-    conn.commit()
-    conn.close()
+    ''', (symbol, name, current_price))
+    connection.commit()
+    connection.close()
 
-def retrieve_stock_data(symbol):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def fetch_stock_by_symbol(symbol):
+    connection = establish_db_connection()
+    cursor = connection.cursor()
     cursor.execute('SELECT id, symbol, name, price FROM stocks WHERE symbol = ?', (symbol,))
-    stock = cursor.fetchone()
-    conn.close()
-    return stock
+    stock_details = cursor.fetchone()
+    connection.close()
+    return stock_details
 
-def store_transaction(stock_symbol, transaction_type, quantity, price):
-    stock = retrieve_stock_data(stock_symbol)
-    if stock:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+def log_stock_transaction(stock_symbol, transaction_type, amount, transaction_price):
+    stock_detail = fetch_stock_by_symbol(stock_symbol)
+    if stock_detail:
+        connection = establish_db_connection()
+        cursor = connection.cursor()
         cursor.execute('''
-            INSERT INTO transactions (stock_id, type, quantity, price)
+            INSERT INTO transactions (stock_id, transaction_type, quantity, price)
             VALUES (?, ?, ?, ?)
-        ''', (stock['id'], transaction_type, quantity, price))
-        conn.commit()
-        conn.close()
+        ''', (stock_detail['id'], transaction_type, amount, transaction_price))
+        connection.commit()
+        connection.close()
     else:
         raise ValueError("Stock not found")
 
-def retrieve_transaction_history(stock_symbol):
-    stock = retrieve_stock_data(stock_symbol)
-    if stock:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+def fetch_transaction_history_by_symbol(stock_symbol):
+    stock_detail = fetch_stock_by_symbol(stock_symbol)
+    if stock_detail:
+        connection = establish_db_connection()
+        cursor = connection.cursor()
         cursor.execute('''
-            SELECT type, quantity, price, timestamp
+            SELECT transaction_type, quantity, price, timestamp
             FROM transactions
             WHERE stock_id = ?
             ORDER BY timestamp DESC
-        ''', (stock['id'],))
-        transactions = cursor.fetchall()
-        conn.close()
-        return transactions
+        ''', (stock_detail['id'],))
+        transaction_history = cursor.fetchall()
+        connection.close()
+        return transaction_history
     else:
         raise ValueError("Stock not found")
