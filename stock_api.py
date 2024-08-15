@@ -1,12 +1,13 @@
 import requests
 from dotenv import load_dotenv
 import os
-from functools import cache # Use `lru_cache` for Python versions < 3.9
+from functools import cache  
 
 load_dotenv()
 
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
 ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"
+
 
 @cache
 def get_real_time_stock_data(symbol):
@@ -15,10 +16,10 @@ def get_real_time_stock_data(symbol):
         "symbol": symbol,
         "apikey": ALPHA_VANTAGE_API_KEY
     }
-    
+
     response = requests.get(ALPHA_VANTAGE_BASE_URL, params=parameters)
     data = response.json()
-    
+
     if "Global Quote" in data:
         return {
             "symbol": symbol,
@@ -35,6 +36,7 @@ def get_real_time_stock_data(symbol):
     else:
         return {"error": "No data found for the symbol"}
 
+
 @cache
 def get_historical_stock_data(symbol, outputsize="compact"):
     parameters = {
@@ -43,10 +45,10 @@ def get_historical_stock_data(symbol, outputsize="compact"):
         "outputsize": outputsize,
         "apikey": ALPHA_VANTAGE_API_KEY
     }
-    
+
     response = requests.get(ALPHA_VANTAGE_BASE_URL, params=parameters)
     data = response.json()
-    
+
     if "Time Series (Daily)" in data:
         daily_data = data["Time Series (Daily)"]
         historical_data = []
@@ -60,7 +62,7 @@ def get_historical_stock_data(symbol, outputsize="compact"):
                 "volume": daily_info["5. volume"]
             }
             historical_data.append(parsed_data)
-        
+
         return historical_data
     else:
         return {"error": "No historical data found for the symbol"}
