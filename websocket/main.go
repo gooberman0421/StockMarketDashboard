@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -33,8 +35,12 @@ func main() {
 
 	go handleMessages()
 
-	log.Println("Starting server on port :8080...")
-	err = http.ListenAndServe(":8080", nil)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080" // Default port if not specified
+	}
+	log.Printf("Starting server on port :%s...", port)
+	err = http.ListenAndServe(":"+port, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
@@ -43,7 +49,8 @@ func main() {
 func handleConnections(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("upgrade error: %v", err)
+		return // Return instead of fatal to not kill server
 	}
 	defer ws.Close()
 
@@ -53,7 +60,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 		var price StockPrice
 		err := ws.ReadJSON(&price)
 		if err != nil {
-			log.Printf("error: %v", err)
+			log.Printf("readJSON error: %v", err)
 			delete(clients, ws)
 			break
 		}
@@ -67,7 +74,7 @@ func handleMessages() {
 		for client := range clients {
 			err := client.WriteJSON(price)
 			if err != nil {
-				log.Printf("error: %v", err)
+				log.Printf("WriteJSON error: %v", err)
 				client.Close()
 				delete(clients, client)
 			}
@@ -76,18 +83,23 @@ func handleMessages() {
 }
 
 func SimulateRealTimeStockPriceGenerator() {
+	tickers := []string{"GOOG", "AAPL", "MSFT", "AMZN", "FB"}
 	for {
-		time.Sleep(10 * time.Second)
+		time.Sleep(time.Duration(rand.Intn(10)+1) * time.Second)
 
+		selectedTicker := tickers[rand.Intn(len(tickers))]
 		priceUpdate := StockPrice{
-			Ticker: "GOOG",
-			Price:  2342.05,
+			Ticker: selectedTicker,
+			Price:  rand.Float64()*1000 + 100, // Simulate price between 100 and 1100
 		}
 
 		broadcast <- priceUpdate
+		log.Printf("Generated price: %v", priceUpdate)
 	}
 }
 
 func init() {
+	rand.Seed(time.Now().UnixNano())
+	log.SetOutput(os.Stdout) // Make sure logging goes to stdout
 	go SimulateRealTimeStockPriceGenerator()
 }
