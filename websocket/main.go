@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -19,11 +20,12 @@ type StockPrice struct {
 	Price  float64 `json:"price"`
 }
 
+type StockPricesBatch []StockPrice
+
 var clients = make(map[*websocket.Conn]bool)
-
-var broadcast = make(chan StockPrice)
-
+var broadcast = make(chan StockPricesBatch)
 var upgrader = websocket.Upgrader{}
+var lock sync.Mutex
 
 func main() {
 	err := godotenv.Load()
@@ -37,7 +39,7 @@ func main() {
 
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "8080" // Default port if not specified
+		port = "8080"
 	}
 	log.Printf("Starting server on port :%s...", port)
 	err = http.ListenAndServe(":"+port, nil)
@@ -50,29 +52,29 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("upgrade error: %v", err)
-		return // Return instead of fatal to not kill server
+		return
 	}
 	defer ws.Close()
 
 	clients[ws] = true
 
 	for {
-		var price StockPrice
-		err := ws.ReadJSON(&price)
+		var prices StockPricesBatch
+		err := ws.ReadJSON(&prices)
 		if err != nil {
 			log.Printf("readJSON error: %v", err)
 			delete(clients, ws)
 			break
 		}
-		broadcast <- price
+		broadcast <- prices
 	}
 }
 
 func handleMessages() {
 	for {
-		price := <-broadcast
+		prices := <-broadcast
 		for client := range clients {
-			err := client.WriteJSON(price)
+			err := client.WriteJSON(prices)
 			if err != nil {
 				log.Printf("WriteJSON error: %v", err)
 				client.Close()
@@ -84,22 +86,20 @@ func handleMessages() {
 
 func SimulateRealTimeStockPriceGenerator() {
 	tickers := []string{"GOOG", "AAPL", "MSFT", "AMZN", "FB"}
+	batchSize := 5
 	for {
-		time.Sleep(time.Duration(rand.Intn(10)+1) * time.Second)
-
-		selectedTicker := tickers[rand.Intn(len(tickers))]
-		priceUpdate := StockPrice{
-			Ticker: selectedTicker,
-			Price:  rand.Float64()*1000 + 100, // Simulate price between 100 and 1100
+		time.Sleep(10 * time.Second)
+		var priceUpdates StockPricesBatch
+		for i := 0; i < batchSize; i++ {
+			selectedTicker := tickers[rand.Intn(len(tickers))]
+			priceUpdate := StockPrice{
+				Ticker: selectedTicker,
+				Price:  rand.Float64()*1000 + 100,
+			}
+			priceUpdates = append(priceUpdates, priceUpdate)
 		}
 
-		broadcast <- priceUpdate
-		log.Printf("Generated price: %v", priceUpdate)
+		broadcast <- priceUpdates
+		log.Printf("Generated prices: %v", priceUpdates)
 	}
-}
-
-func init() {
-	rand.Seed(time.Now().UnixNano())
-	log.SetOutput(os.Stdout) // Make sure logging goes to stdout
-	go SimulateRealTimeStockPriceGenerator()
 }
