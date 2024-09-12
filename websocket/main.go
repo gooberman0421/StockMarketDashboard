@@ -1,13 +1,10 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -22,28 +19,33 @@ type StockPrice struct {
 
 type StockPricesBatch []StockPrice
 
-var clients = make(map[*websocket.Conn]bool)
-var broadcast = make(chan StockPricesBatch)
-var upgrader = websocket.Upgrader{}
-var lock sync.Mutex
+var (
+	clients   = make(map[*websocket.Conn]bool) // Connected clients
+	broadcast = make(chan StockPricesBatch)    // Broadcast channel
+	upgrader  = websocket.Upgrader{}           // Configure the upgrader
+	lock      sync.Mutex                        // Synchronize access
+)
 
-func main() {
-	err := godotenv.Load()
-	if err != nil {
+func init() {
+	// Load .env file at the beginning
+	if err := godotenv.Load(); err != nil {
 		log.Fatal("Error loading .env file")
 	}
+}
 
+func main() {
 	http.HandleFunc("/ws", handleConnections)
 
 	go handleMessages()
+	go SimulateRealTimeStockPriceGenerator() // Start the simulation
 
+	// Determine port and start server
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 	log.Printf("Starting server on port :%s...", port)
-	err = http.ListenAndServe(":"+port, nil)
-	if err != nil {
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
 }
@@ -60,8 +62,7 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		var prices StockPricesBatch
-		err := ws.ReadJSON(&prices)
-		if err != nil {
+		if err := ws.ReadJSON(&prices); err != nil {
 			log.Printf("readJSON error: %v", err)
 			delete(clients, ws)
 			break
@@ -71,11 +72,9 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleMessages() {
-	for {
-		prices := <-broadcast
+	for prices := range broadcast {
 		for client := range clients {
-			err := client.WriteJSON(prices)
-			if err != nil {
+			if err := client.WriteJSON(prices); err != nil {
 				log.Printf("WriteJSON error: %v", err)
 				client.Close()
 				delete(clients, client)
@@ -86,15 +85,14 @@ func handleMessages() {
 
 func SimulateRealTimeStockPriceGenerator() {
 	tickers := []string{"GOOG", "AAPL", "MSFT", "AMZN", "FB"}
-	batchSize := 5
+	batchSize := len(tickers)
 	for {
-		time.Sleep(10 * time.Second)
+		time.Sleep(10 * time.Second) // Simulate delay
 		var priceUpdates StockPricesBatch
-		for i := 0; i < batchSize; i++ {
-			selectedTicker := tickers[rand.Intn(len(tickers))]
+		for _, ticker := range tickers {
 			priceUpdate := StockPrice{
-				Ticker: selectedTicker,
-				Price:  rand.Float64()*1000 + 100,
+				Ticker: ticker,
+				Price:  rand.Float64()*1000 + 100, // Generate a new price
 			}
 			priceUpdates = append(priceUpdates, priceUpdate)
 		}
