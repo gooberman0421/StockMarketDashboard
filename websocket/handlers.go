@@ -9,10 +9,14 @@ import (
 	"github.com/joho/godotenv"
 )
 
-var clients = make(map[*websocket.Conn]bool) 
-var broadcast = make(chan Message)           
+var clients = make(map[*websocket.Conn]bool)
+var broadcast = make(chan Message)
 
-var upgrader = websocket.Upgrader{}
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Adjust this to a proper origin checking for production
+	},
+}
 
 type Message struct {
 	Email    string `json:"email"`
@@ -23,7 +27,7 @@ type Message struct {
 func main() {
 	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error loading .env file")
+		log.Printf("Warning: Error loading .env file, %s\n", err)
 	}
 
 	fs := http.FileServer(http.Dir("./public"))
@@ -33,27 +37,37 @@ func main() {
 
 	go handleMessages()
 
-	log.Println("http server started on :" + os.Getenv("PORT"))
-	err = http.ListenAndServe(":"+os.Getenv("PORT"), nil)
+	port := os.Getenv("PORT")
+	if port == "" {
+		log.Fatal("PORT environment variable not set.")
+	}
+
+	log.Println("http server started on :" + port)
+	err = http.ListenAndServe(":"+port, nil)
 	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
+		log.Fatalf("ListenAndServe failed: %v\n", err)
 	}
 }
 
 func handleConnections(w http.ResponseWriter, r *http.Request) {
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Printf("websocket upgrade failed: %v\n", err)
+		return // Don't call log.Fatal here, otherwise server will stop on error
 	}
-	defer ws.Close()
+	defer func() {
+		err := ws.Close()
+		if err != nil {
+			log.Printf("error closing connection: %v\n", err)
+		}
+	}()
 
 	clients[ws] = true
 
 	for {
 		var msg Message
-		err := ws.ReadJSON(&msg)
-		if err != nil {
-			log.Printf("error: %v", err)
+		if err := ws.ReadJSON(&msg); err != nil {
+			log.Printf("error reading json: %v\n", err)
 			delete(clients, ws)
 			break
 		}
@@ -62,13 +76,11 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleMessages() {
-	for {
-		msg := <-broadcast
+	for msg := range broadcast {
 		for client := range clients {
-			err := client.WriteJSON(msg)
-			if err != nil {
-				log.Printf("write error: %v", err)
-				client.Close()
+			if err := client.WriteJSON(msg); err != nil {
+				log.Printf("error writing json: %v\n", err)
+				_ = client.Close()
 				delete(clients, client)
 			}
 		}
