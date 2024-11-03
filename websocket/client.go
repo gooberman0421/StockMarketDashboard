@@ -33,7 +33,7 @@ var (
 
 func init() {
 	if err := godotenv.Load(); err != nil {
-		log.Println(".env file not found")
+		log.Printf("Warning: .env file not found. Proceeding without it. Error: %v\n", err)
 	}
 	upgrader.CheckOrigin = func(r *http.Request) bool {
 		return true
@@ -44,6 +44,7 @@ func (manager *ClientManager) addClient(client *Client) {
 	manager.lock.Lock()
 	defer manager.lock.Unlock()
 	manager.clients[client] = true
+	log.Printf("Added new client. Total clients: %d\n", len(manager.clients))
 }
 
 func (manager *ClientManager) removeClient(client *Client) {
@@ -51,6 +52,7 @@ func (manager *ClientManager) removeClient(client *Client) {
 	defer manager.lock.Unlock()
 	if _, ok := manager.clients[client]; ok {
 		delete(manager.clients, client)
+		log.Printf("Removed client. Total clients: %d\n", len(manager.clients))
 	}
 }
 
@@ -60,8 +62,9 @@ func (manager *ClientManager) broadcast(message string) {
 	for client := range manager.clients {
 		err := client.Conn.WriteJSON(broadcastMessage{Message: message})
 		if err != nil {
-			log.Printf("Error broadcasting message to client: %v", err)
+			log.Printf("Error broadcasting message to a client. Removing client. Error: %v\n", err)
 			manager.removeClient(client)
+			client.Conn.Close()
 		}
 	}
 }
@@ -69,7 +72,8 @@ func (manager *ClientManager) broadcast(message string) {
 func handleConnections(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.Println("Failed to upgrade connection:", err)
+		log.Printf("Failed to upgrade connection: %v\n", err)
+		http.Error(w, "Could not upgrade to websocket", http.StatusInternalServerError)
 		return
 	}
 	client := &Client{Conn: conn}
@@ -77,11 +81,11 @@ func handleConnections(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		clientManager.removeClient(client)
 		conn.Close()
+		log.Println("Closed connection for client.")
 	}()
 	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			log.Println("Error reading message:", err)
+		if _, _, err := conn.ReadMessage(); err != nil {
+			log.Printf("Error reading message from client. Error: %v\n", err)
 			break
 		}
 	}
@@ -99,9 +103,8 @@ func main() {
 			time.Sleep(10 * time.Second)
 		}
 	}()
-	log.Println("Starting server on port", port)
-	err := http.ListenAndServe(":"+port, nil)
-	if err != nil {
-		log.Fatal("Error starting server:", err)
+	log.Printf("Starting server on port %s\n", port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatalf("Failed to start server: %v\n", err)
 	}
 }
