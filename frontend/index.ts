@@ -1,23 +1,24 @@
 import { useQuery } from 'react-query';
 
-const fetchStockDetails = async (id: string) => {
-  const response = await fetch(`/api/stocks/${id}`);
+const fetchStockById = async (stockId: string) => {
+  const response = await fetch(`/api/stocks/${stockId}`);
   if (!response.ok) {
-    throw new Error('Network response was not ok');
+    throw new Error('Failed to fetch stock details from the server');
   }
   return response.json();
 };
 
-const StockDetails = ({ id }: { id: string }) => {
-  const { data, error, isLoading } = useQuery(['stockDetails', id], () => fetchStockDetails(id));
+const StockDetailsComponent = ({ stockId }: { stockId: string }) => {
+  const { data: stockData, error: fetchError, isLoading: isStockLoading } = useQuery(['stockDetails', stockId], () => fetchStockById(stockId));
 
-  if (isLoading) return <div>Loading...</div>;
-  if (error instanceof Error) return <div>An error occurred: {error.message}</div>;
+  if (isStockLoading) return <div>Loading stock information...</div>;
+  if (fetchError instanceof Error) return <div>An error occurred while retrieving stock details: {fetchError.message}</div>;
 
   return (
     <div>
       <h1>Stock Details</h1>
-      {/* Render your data here */}
     </div>
   );
 };
+
+export default StockDetailsComponent;
